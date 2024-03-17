@@ -1,113 +1,82 @@
+const {Client, GatewayIntentBits } = require('discord.js');
+const isToday = require('dayjs/plugin/isToday')
+const dayjs = require('dayjs')
 
-// const { clientId, guildId, token, publicKey } = require('./config.json');
-require('dotenv').config()
-const APPLICATION_ID = process.env.APPLICATION_ID 
-const TOKEN = process.env.TOKEN 
-const PUBLIC_KEY = process.env.PUBLIC_KEY || 'not set'
-const GUILD_ID = process.env.GUILD_ID 
+dayjs.extend(isToday)
 
 
-const axios = require('axios')
-const express = require('express');
-const { InteractionType, InteractionResponseType, verifyKeyMiddleware } = require('discord-interactions');
+const token = process.env.token
 
+const { joinVoiceChannel,createAudioPlayer,createAudioResource,AudioPlayerStatus } = require('@discordjs/voice');
 
-const app = express();
-// app.use(bodyParser.json());
+const bohdanUserId = '862255677300277268'; // bodyana
+const andronUserId = '345604157723377676'; // miy
+const artemUserId = '343310025202204674'; // artema
 
-const discord_api = axios.create({
-  baseURL: 'https://discord.com/api/',
-  timeout: 3000,
-  headers: {
-	"Access-Control-Allow-Origin": "*",
-	"Access-Control-Allow-Methods": "GET, POST, PUT, DELETE",
-	"Access-Control-Allow-Headers": "Authorization",
-	"Authorization": `Bot ${TOKEN}`
-  }
+const monitoredChannelId = '973230021445570640';
+
+const messagesChannelId = '1209155717383323790';
+
+let todaysJoinDate = null
+
+const client = new Client({
+    intents: [
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMessages,
+        GatewayIntentBits.GuildVoiceStates,
+    ],
 });
 
+client.on('ready', () => {
+
+    setInterval(()=> {
+        console.log(`Logged in as ${client.user.tag}, to prevent idle`);
+    },50_000)
+});
+
+client.on('voiceStateUpdate', (oldState, newState) => {
+    // if has been on server already
+    if(oldState.channelId === newState.channelId)return;
+    const channel = client.channels.cache.get(monitoredChannelId);
+
+    const messageChanel = client.channels.cache.get(messagesChannelId)
 
 
-
-app.post('/interactions', verifyKeyMiddleware(PUBLIC_KEY), async (req, res) => {
-  const interaction = req.body;
-
-  if (interaction.type === InteractionType.APPLICATION_COMMAND) {
-    console.log(interaction.data.name)
-    if(interaction.data.name == 'yo'){
-      return res.send({
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data: {
-          content: `Yo ${interaction.member.user.username}!`,
-        },
-      });
+    if (!channel) {
+        console.error('User or channel not found.');
+        return;
     }
 
-    if(interaction.data.name == 'dm'){
-      // https://discord.com/developers/docs/resources/user#create-dm
-      let c = (await discord_api.post(`/users/@me/channels`,{
-        recipient_id: interaction.member.user.id
-      })).data
-      try{
-        // https://discord.com/developers/docs/resources/channel#create-message
-        let res = await discord_api.post(`/channels/${c.id}/messages`,{
-          content:'Yo! I got your slash command. I am not able to respond to DMs just slash commands.',
-        })
-        console.log(res.data)
-      }catch(e){
-        console.log(e)
-      }
+    const isAnyOurId = newState.member.user.id === artemUserId || newState.member.user.id === andronUserId;
 
-      return res.send({
-        // https://discord.com/developers/docs/interactions/receiving-and-responding#responding-to-an-interaction
-        type: InteractionResponseType.CHANNEL_MESSAGE_WITH_SOURCE,
-        data:{
-          content:'👍'
+    if (newState.channel && newState.channel.id === monitoredChannelId && isAnyOurId) {
+
+
+        // has been logged today
+        if(process.env.onceAday && (todaysJoinDate !== null && dayjs().isToday(todaysJoinDate))) return;
+
+        todaysJoinDate = new Date(new Date().getTime() + 7200000);
+
+        const connection = joinVoiceChannel({
+            channelId: channel.id,
+            guildId: channel.guild.id,
+            adapterCreator: channel.guild.voiceAdapterCreator,
+        });
+
+        const player = createAudioPlayer();
+        const resource = createAudioResource('./audiofile.mp3');
+        const formattedDate = dayjs(todaysJoinDate).format('dddd, MMMM D, YYYY HH:mm')
+        messageChanel.send('ARTEM ZAISHOV SYOHODNI O \n' + formattedDate)
+
+        if(player.state.status !== 'playing' || player.state.status !== 'buffering') {
+            player.play(resource);
+            connection.subscribe(player);
         }
-      });
-    }
-  }
 
+        player.on(AudioPlayerStatus.Idle, () => {
+            connection?.disconnect()
+        });
+    }
 });
 
-
-
-app.get('/register_commands', async (req,res) =>{
-  let slash_commands = [
-    {
-      "name": "yo",
-      "description": "replies with Yo!",
-      "options": []
-    },
-    {
-      "name": "dm",
-      "description": "sends user a DM",
-      "options": []
-    }
-  ]
-  try
-  {
-    // api docs - https://discord.com/developers/docs/interactions/application-commands#create-global-application-command
-    let discord_response = await discord_api.put(
-      `/applications/${APPLICATION_ID}/guilds/${GUILD_ID}/commands`,
-      slash_commands
-    )
-    console.log(discord_response.data)
-    return res.send('commands have been registered')
-  }catch(e){
-    console.error(e.code)
-    console.error(e.response?.data)
-    return res.send(`${e.code} error from discord`)
-  }
-})
-
-
-app.get('/', async (req,res) =>{
-  return res.send('Follow documentation ')
-})
-
-
-app.listen(8999, () => {
-
-})
-
+client.login(token);
